@@ -8,6 +8,12 @@ import { Button } from "./components/ui/button.tsx";
 import { Progress } from "@/components/ui/progress";
 
 const socket = io(import.meta.env.VITE_SIGNALING_SERVER_URL || "http://localhost:5000");
+console.log("Backend URL:", import.meta.env.VITE_SIGNALING_SERVER_URL);
+console.log("Socket connected:", socket.connected);
+
+socket.on("connect", () => {
+  console.log("Connected to:", socket.io.uri);
+});
 
 export default function Chat() {
   const rtcRef = useRef(null);
