@@ -2,16 +2,21 @@ const getIceServers = () => {
     const servers = [
         {
             urls: 'stun:stun.l.google.com:19302'
+        },
+        {
+            urls: 'stun:stun.relay.metered.ca:80'
         }
     ];
 
-    const turnUrl = import.meta.env.VITE_TURN_SERVER_URL;
+    const turnUrlString = import.meta.env.VITE_TURN_SERVER_URL;
     const turnUsername = import.meta.env.VITE_TURN_USERNAME;
     const turnCredential = import.meta.env.VITE_TURN_PASSWORD;
 
-    if (turnUrl && turnUsername && turnCredential) {
+    if (turnUrlString && turnUsername && turnCredential) {
+        // Support comma-separated URLs
+        const turnUrls = turnUrlString.split(',').map(url => url.trim());
         servers.push({
-            urls: turnUrl,
+            urls: turnUrls,
             username: turnUsername,
             credential: turnCredential
         });
