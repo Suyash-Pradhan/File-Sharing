@@ -20,6 +20,17 @@ class RTCService {
                 console.log("✅ Connection established");
             }
         };
+        this.pc.onconnectionstatechange = () => {
+            console.log("Connection:", this.pc.connectionState);
+        };
+
+        this.pc.oniceconnectionstatechange = () => {
+            console.log("ICE:", this.pc.iceConnectionState);
+        };
+
+        this.pc.onicegatheringstatechange = () => {
+            console.log("ICE Gathering:", this.pc.iceGatheringState);
+        };
         this.pc.ondatachannel = (event) => {
             this.dataChannel = event.channel;
             this.bindDataChannelHandlers(this.dataChannel);
@@ -282,6 +293,17 @@ class RTCService {
             if (this.pc.connectionState === "connected") {
                 console.log("✅ Connection established");
             }
+        };
+        this.pc.onconnectionstatechange = () => {
+            console.log("Connection:", this.pc.connectionState);
+        };
+
+        this.pc.oniceconnectionstatechange = () => {
+            console.log("ICE:", this.pc.iceConnectionState);
+        };
+
+        this.pc.onicegatheringstatechange = () => {
+            console.log("ICE Gathering:", this.pc.iceGatheringState);
         };
         this.pc.ondatachannel = (event) => {
             this.dataChannel = event.channel;
