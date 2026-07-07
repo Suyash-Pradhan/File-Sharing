@@ -34,6 +34,12 @@ export default function Chat() {
   const [text, setText] = useState("");
   const [receivedMessages, setReceivedMessages] = useState([]);
   const [progress, setProgress] = useState(0);
+  const [debugLogs, setDebugLogs] = useState([]);
+
+  const addLog = (message) => {
+    const timestamp = new Date().toLocaleTimeString();
+    setDebugLogs((prev) => [`[${timestamp}] ${message}`, ...prev].slice(0, 45));
+  };
 
   if (!rtcRef.current) {
     rtcRef.current = new RTCService();
@@ -42,18 +48,30 @@ export default function Chat() {
   const rtc = rtcRef.current;
 
   useEffect(() => {
+    const handleConnect = () => {
+      addLog(`⚡ Connected to signaling server: ${socket.io.uri}`);
+    };
+
+    const handleDisconnect = () => {
+      addLog(`🔌 Disconnected from signaling server`);
+    };
+
     const handleMe = (id) => {
       setMyId(id);
+      addLog(`My socket ID registered: ${id}`);
     };
 
     // 🔥 when someone joins → create offer
     const handleUserJoined = async (userId) => {
       console.log("User joined:", userId);
+      addLog(`Peer joined room: ${userId}`);
 
       targetRef.current = userId;
 
+      addLog(`Creating WebRTC Offer...`);
       const offer = await rtc.createOffer();
 
+      addLog(`Sending Offer to ${userId}`);
       socket.emit("offer", {
         offer,
         to: userId,
@@ -63,11 +81,14 @@ export default function Chat() {
     // 🔥 receive offer → send answer
     const handleOffer = async ({ offer, from }) => {
       console.log("Received offer from:", from);
+      addLog(`Received Offer from: ${from}`);
 
       targetRef.current = from;
 
+      addLog(`Creating WebRTC Answer...`);
       const answer = await rtc.createAnswer(offer);
 
+      addLog(`Sending Answer to ${from}`);
       socket.emit("answer", {
         answer,
         to: from,
@@ -77,11 +98,14 @@ export default function Chat() {
     // 🔥 receive answer
     const handleAnswer = async ({ answer }) => {
       console.log("Received answer");
+      addLog(`Received Answer from peer`);
       await rtc.setRemoteAnswer(answer);
+      addLog(`Remote answer set successfully`);
     };
 
     // 🔥 receive ICE
     const handleIceCandidate = ({ candidate, from }) => {
+      addLog(`Received ICE candidate from ${from}`);
       targetRef.current = from;
       rtc.addIceCandidate(candidate);
     };
@@ -89,11 +113,16 @@ export default function Chat() {
     // 🔥 send ICE
     rtc.pc.onicecandidate = (event) => {
       if (event.candidate) {
+        addLog(`Found local ICE candidate. Sending to peer...`);
         socket.emit("ice-candidate", {
           candidate: event.candidate,
           to: targetRef.current,
         });
       }
+    };
+
+    rtc.onStateChange = (type, state) => {
+      addLog(`RTC State [${type}]: ${state}`);
     };
 
     rtc.onMessage = (message) => {
@@ -102,6 +131,7 @@ export default function Chat() {
           type: "text",
           data: message.data
         }]);
+        addLog(`Received message: "${message.data}"`);
       }
 
       if (message.type === "file") {
@@ -110,11 +140,7 @@ export default function Chat() {
           name: message.name,
           url: message.url
         }]);
-
-        // const a = document.createElement("a");
-        // a.href = message.url;
-        // a.download = message.name;
-        // a.click();
+        addLog(`Received file: ${message.name}`);
       }
 
       if (message.type === "file-progress") {
@@ -125,15 +151,17 @@ export default function Chat() {
       }
       if (message.type === 'file-cancelled') {
         console.log("File transfer cancelled by sender");
+        addLog(`⚠ File transfer cancelled by sender`);
         setRecivedProgress({
           progress: 0,
           name: ""
-        })
-      };
+        });
+      }
     };
 
     const handleUserLeft = (userId) => {
       console.log("User left:", userId);
+      addLog(`Peer left room: ${userId}`);
       if (targetRef.current === userId) {
         targetRef.current = "";
         rtc.closeConnection();
@@ -149,9 +177,15 @@ export default function Chat() {
           progress: 0,
           name: ""
         });
+        // Hook up callback again on the new connection
+        rtc.onStateChange = (type, state) => {
+          addLog(`RTC State [${type}]: ${state}`);
+        };
       }
     };
 
+    socket.on("connect", handleConnect);
+    socket.on("disconnect", handleDisconnect);
     socket.on("me", handleMe);
     socket.on("user:joinedRoom", handleUserJoined);
     socket.on("user:leftRoom", handleUserLeft);
@@ -159,7 +193,16 @@ export default function Chat() {
     socket.on("answer", handleAnswer);
     socket.on("ice-candidate", handleIceCandidate);
 
+    if (socket.connected) {
+      handleConnect();
+      if (socket.id) {
+        handleMe(socket.id);
+      }
+    }
+
     return () => {
+      socket.off("connect", handleConnect);
+      socket.off("disconnect", handleDisconnect);
       socket.off("me", handleMe);
       socket.off("user:joinedRoom", handleUserJoined);
       socket.off("user:leftRoom", handleUserLeft);
@@ -167,16 +210,19 @@ export default function Chat() {
       socket.off("answer", handleAnswer);
       socket.off("ice-candidate", handleIceCandidate);
       rtc.onMessage = null;
+      rtc.onStateChange = null;
     };
   }, []);
 
   // ✅ JOIN ROOM
   const joinRoom = () => {
+    addLog(`Joining room: ${roomId}`);
     socket.emit("user:joinRoom", roomId);
   };
 
   // ✅ SEND MESSAGE
   const sendMessage = () => {
+    addLog(`Sending message: "${text}"`);
     rtc.send(JSON.stringify({
       type: "text",
       data: text
@@ -216,7 +262,35 @@ export default function Chat() {
           </div>
         </div>
         <div className="grid gap-6 lg:grid-cols-2">
-          <h1>debug</h1>
+          {/* Debug Console Panel */}
+          <section className="rounded-md border bg-card lg:col-span-2">
+            <div className="flex items-center justify-between border-b px-4 py-3">
+              <div>
+                <p className="text-sm font-semibold">Debug Console (Mobile Friendly)</p>
+                <p className="text-xs text-muted-foreground">Monitor real-time network and WebRTC signaling status</p>
+              </div>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={() => setDebugLogs([])}
+                className="hover:cursor-pointer text-xs h-7 px-2"
+              >
+                Clear logs
+              </Button>
+            </div>
+            <div className="p-4">
+              <div className="h-44 overflow-y-auto rounded-md border bg-black p-3 font-mono text-[11px] text-green-400 space-y-1">
+                {debugLogs.length === 0 ? (
+                  <div className="text-muted-foreground italic">No logs yet. Join a room or connect to begin...</div>
+                ) : (
+                  debugLogs.map((log, idx) => (
+                    <div key={idx} className="whitespace-pre-wrap leading-relaxed">{log}</div>
+                  ))
+                )}
+              </div>
+            </div>
+          </section>
+
           <section className="rounded-md border bg-card">
             <div className="flex items-center justify-between border-b px-4 py-3">
               <div>
