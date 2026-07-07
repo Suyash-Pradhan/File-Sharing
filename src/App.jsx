@@ -209,8 +209,8 @@ export default function Chat() {
             <Button className="hover:cursor-pointer" onClick={joinRoom}>Join room</Button>
           </div>
         </div>
-
         <div className="grid gap-6 lg:grid-cols-2">
+          <h1>debug</h1>
           <section className="rounded-md border bg-card">
             <div className="flex items-center justify-between border-b px-4 py-3">
               <div>
