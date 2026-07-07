@@ -1,11 +1,29 @@
+const getIceServers = () => {
+    const servers = [
+        {
+            urls: 'stun:stun.l.google.com:19302'
+        }
+    ];
+
+    const turnUrl = import.meta.env.VITE_TURN_SERVER_URL;
+    const turnUsername = import.meta.env.VITE_TURN_USERNAME;
+    const turnCredential = import.meta.env.VITE_TURN_PASSWORD;
+
+    if (turnUrl && turnUsername && turnCredential) {
+        servers.push({
+            urls: turnUrl,
+            username: turnUsername,
+            credential: turnCredential
+        });
+    }
+
+    return servers;
+};
 
 class RTCService {
     constructor() {
         this.pc = new RTCPeerConnection({
-            iceServers: [{
-                urls: 'stun:stun.l.google.com:19302'
-            }]
-
+            iceServers: getIceServers()
         })
 
         this.dataChannel = null;
@@ -283,9 +301,7 @@ class RTCService {
         }
         // Re-initialize PeerConnection
         this.pc = new RTCPeerConnection({
-            iceServers: [{
-                urls: 'stun:stun.l.google.com:19302'
-            }]
+            iceServers: getIceServers()
         });
         this.iceQueue = [];
         this.pc.onconnectionstatechange = () => {
