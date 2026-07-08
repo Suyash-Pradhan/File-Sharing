@@ -1,13 +1,35 @@
+const getIceServers = () => {
+    const servers = [
+        {
+            urls: 'stun:stun.l.google.com:19302'
+        },
+        {
+            urls: 'stun:stun.relay.metered.ca:80'
+        }
+    ];
+
+    const turnUrlString = import.meta.env.VITE_TURN_SERVER_URL;
+    const turnUsername = import.meta.env.VITE_TURN_USERNAME;
+    const turnCredential = import.meta.env.VITE_TURN_PASSWORD;
+
+    if (turnUrlString && turnUsername && turnCredential) {
+        // Support comma-separated URLs
+        const turnUrls = turnUrlString.split(',').map(url => url.trim());
+        servers.push({
+            urls: turnUrls,
+            username: turnUsername,
+            credential: turnCredential
+        });
+    }
+
+    return servers;
+};
 
 class RTCService {
     constructor() {
-        this.pc = new RTCPeerConnection({
-            iceServers: [{
-                urls: 'stun:stun.l.google.com:19302'
-            }]
-
+      this.pc = new RTCPeerConnection({
+            iceServers: getIceServers()
         })
-
         this.dataChannel = null;
         this.onMessage = null;
         this.uplodeAbortcontroller = null;
