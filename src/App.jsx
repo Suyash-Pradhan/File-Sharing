@@ -1,33 +1,43 @@
 import { useEffect, useRef, useState } from "react";
 import { io } from "socket.io-client";
 import RTCService from "./service/rtcService.js";
-import { Field, FieldLabel } from "./components/ui/field.tsx";
-import { Input } from "./components/ui/input.tsx";
-import { Button } from "./components/ui/button.tsx";
-// import { Menubar } from "./components/ui/menubar.tsx";
-import { Progress } from "@/components/ui/progress";
+import Header from "./components/Header.jsx";
+import MessagePanel from "./components/MessagePanel.jsx";
+import FilePanel from "./components/FilePanel.jsx";
 
 const socket = io(import.meta.env.VITE_SIGNALING_SERVER_URL || "http://localhost:5000");
 
 export default function Chat() {
   const rtcRef = useRef(null);
   const targetRef = useRef("");
+
+  // Connection states
+  const [socketConnected, setSocketConnected] = useState(false);
+  const [peerConnectionState, setPeerConnectionState] = useState("new");
+  const [myId, setMyId] = useState("");
+  const [roomId, setRoomId] = useState("room1");
+  const [joinedRoom, setJoinedRoom] = useState("");
+  const [copiedRoom, setCopiedRoom] = useState(false);
+
+  // File Transfer states
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadStats, setUploadStats] = useState({
+    progress: 0,
+    speedKBps: 0,
+    speedMbps: 0,
+    timeRemaining: 0,
+    uploaded: 0,
+    total: 0
+  });
   const [recivedProgress, setRecivedProgress] = useState({
     progress: 0,
     name: ""
   });
+  const [progress, setProgress] = useState(0);
 
-  const [myId, setMyId] = useState("");
-  const [uploadStats, setUploadStats] = useState({
-    progress: 0,
-    speedMbps: 0,
-    timeRemaining: 0
-  });
-  const [isUploading, setIsUploading] = useState(false);
-  const [roomId, setRoomId] = useState("room1");
+  // Chat states
   const [text, setText] = useState("");
   const [receivedMessages, setReceivedMessages] = useState([]);
-  const [progress, setProgress] = useState(0);
 
   if (!rtcRef.current) {
     rtcRef.current = new RTCService();
@@ -40,14 +50,22 @@ export default function Chat() {
       setMyId(id);
     };
 
+    const handleConnect = () => {
+      setSocketConnected(true);
+      setMyId(socket.id);
+    };
+
+    const handleDisconnect = () => {
+      setSocketConnected(false);
+      setMyId("");
+      setJoinedRoom("");
+    };
+
     // 🔥 when someone joins → create offer
     const handleUserJoined = async (userId) => {
       console.log("User joined:", userId);
-
       targetRef.current = userId;
-
       const offer = await rtc.createOffer();
-
       socket.emit("offer", {
         offer,
         to: userId,
@@ -57,11 +75,8 @@ export default function Chat() {
     // 🔥 receive offer → send answer
     const handleOffer = async ({ offer, from }) => {
       console.log("Received offer from:", from);
-
       targetRef.current = from;
-
       const answer = await rtc.createAnswer(offer);
-
       socket.emit("answer", {
         answer,
         to: from,
@@ -80,12 +95,31 @@ export default function Chat() {
       rtc.addIceCandidate(candidate);
     };
 
-    // 🔥 send ICE
-    rtc.pc.onicecandidate = (event) => {
-      if (event.candidate) {
+    // Bind RTC Service callbacks
+    rtc.onIceCandidate = (candidate) => {
+      if (candidate) {
         socket.emit("ice-candidate", {
-          candidate: event.candidate,
+          candidate,
           to: targetRef.current,
+        });
+      }
+    };
+
+    rtc.onConnectionStateChange = (state) => {
+      setPeerConnectionState(state);
+      if (state === "disconnected" || state === "failed" || state === "closed") {
+        setIsUploading(false);
+        setUploadStats({
+          progress: 0,
+          speedKBps: 0,
+          speedMbps: 0,
+          timeRemaining: 0,
+          uploaded: 0,
+          total: 0
+        });
+        setRecivedProgress({
+          progress: 0,
+          name: ""
         });
       }
     };
@@ -93,22 +127,24 @@ export default function Chat() {
     rtc.onMessage = (message) => {
       if (message.type === "text") {
         setReceivedMessages((prev) => [...prev, {
+          sender: "peer",
           type: "text",
-          data: message.data
+          data: message.data,
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
         }]);
       }
 
       if (message.type === "file") {
         setReceivedMessages((prev) => [...prev, {
+          sender: "peer",
           type: "file",
           name: message.name,
           url: message.url
         }]);
-
-        // const a = document.createElement("a");
-        // a.href = message.url;
-        // a.download = message.name;
-        // a.click();
+        setRecivedProgress({
+          progress: 0,
+          name: ""
+        });
       }
 
       if (message.type === "file-progress") {
@@ -117,13 +153,14 @@ export default function Chat() {
           name: message.name
         });
       }
+
       if (message.type === 'file-cancelled') {
         console.log("File transfer cancelled by sender");
         setRecivedProgress({
           progress: 0,
           name: ""
-        })
-      };
+        });
+      }
     };
 
     const handleUserLeft = (userId) => {
@@ -136,8 +173,11 @@ export default function Chat() {
         setIsUploading(false);
         setUploadStats({
           progress: 0,
+          speedKBps: 0,
           speedMbps: 0,
-          timeRemaining: 0
+          timeRemaining: 0,
+          uploaded: 0,
+          total: 0
         });
         setRecivedProgress({
           progress: 0,
@@ -146,190 +186,206 @@ export default function Chat() {
       }
     };
 
+    // Socket.io event registrations
     socket.on("me", handleMe);
+    socket.on("connect", handleConnect);
+    socket.on("disconnect", handleDisconnect);
     socket.on("user:joinedRoom", handleUserJoined);
     socket.on("user:leftRoom", handleUserLeft);
     socket.on("offer", handleOffer);
     socket.on("answer", handleAnswer);
     socket.on("ice-candidate", handleIceCandidate);
 
+    // Initial state setup
+    setSocketConnected(socket.connected);
+    if (socket.connected) {
+      setMyId(socket.id);
+    }
+    setPeerConnectionState(rtc.pc.connectionState);
+
+    // Query parameter room joining
+    const params = new URLSearchParams(window.location.search);
+    const roomParam = params.get("room");
+    if (roomParam) {
+      setRoomId(roomParam);
+      const checkAndJoin = () => {
+        if (socket.connected) {
+          socket.emit("user:joinRoom", roomParam);
+          setJoinedRoom(roomParam);
+        } else {
+          setTimeout(checkAndJoin, 150);
+        }
+      };
+      checkAndJoin();
+    }
+
     return () => {
       socket.off("me", handleMe);
+      socket.off("connect", handleConnect);
+      socket.off("disconnect", handleDisconnect);
       socket.off("user:joinedRoom", handleUserJoined);
       socket.off("user:leftRoom", handleUserLeft);
       socket.off("offer", handleOffer);
       socket.off("answer", handleAnswer);
       socket.off("ice-candidate", handleIceCandidate);
       rtc.onMessage = null;
+      rtc.onConnectionStateChange = null;
+      rtc.onIceCandidate = null;
     };
   }, []);
 
   // ✅ JOIN ROOM
   const joinRoom = () => {
-    socket.emit("user:joinRoom", roomId);
+    if (roomId.trim()) {
+      socket.emit("user:joinRoom", roomId);
+      setJoinedRoom(roomId);
+    }
+  };
+
+  // ✅ LEAVE ROOM
+  const leaveRoom = () => {
+    rtc.closeConnection();
+    socket.disconnect();
+    socket.connect();
+    setJoinedRoom("");
+    setReceivedMessages([]);
+    setProgress(0);
+    setIsUploading(false);
+    setUploadStats({
+      progress: 0,
+      speedKBps: 0,
+      speedMbps: 0,
+      timeRemaining: 0,
+      uploaded: 0,
+      total: 0
+    });
+    setRecivedProgress({
+      progress: 0,
+      name: ""
+    });
   };
 
   // ✅ SEND MESSAGE
   const sendMessage = () => {
+    if (!text.trim()) return;
     rtc.send(JSON.stringify({
       type: "text",
       data: text
     }));
+    setReceivedMessages((prev) => [...prev, {
+      sender: "me",
+      type: "text",
+      data: text,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    }]);
+    setText("");
   };
 
-  const formatTime = (seconds) => {
-    if (seconds < 60) return `${seconds}s`;
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins}m ${secs}s`;
+  // ✅ SEND FILE
+  const handleSendFile = (file) => {
+    if (!file) return;
+    setIsUploading(true);
+    setProgress(0);
+    setUploadStats({
+      progress: 0,
+      speedKBps: 0,
+      speedMbps: 0,
+      timeRemaining: 0,
+      uploaded: 0,
+      total: file.size
+    });
+
+    rtc.sendFile(file, (p) => {
+      setProgress(Number(p.progress) || 0);
+      setUploadStats({
+        progress: Number(p.progress) || 0,
+        speedKBps: Number(p.speedKBps) || 0,
+        speedMbps: Number(p.speedMbps) || 0,
+        timeRemaining: Number(p.timeRemaining) || 0,
+        uploaded: Number(p.uploaded) || 0,
+        total: Number(p.total) || file.size
+      });
+    }).then(() => {
+      console.log("File sent successfully");
+      setReceivedMessages((prev) => [...prev, {
+        sender: "me",
+        type: "file",
+        name: file.name,
+        size: file.size
+      }]);
+      setUploadStats({ progress: 0, speedKBps: 0, speedMbps: 0, timeRemaining: 0, uploaded: 0, total: 0 });
+      setIsUploading(false);
+      setProgress(0);
+    }).catch((err) => {
+      console.error("File send error:", err);
+      setUploadStats({ progress: 0, speedKBps: 0, speedMbps: 0, timeRemaining: 0, uploaded: 0, total: 0 });
+      setIsUploading(false);
+      setProgress(0);
+    });
   };
 
-  const formatSize = (bytes) => {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(2)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+  // ✅ CANCEL UPLOAD
+  const handleCancelUpload = () => {
+    rtc.cancelUpload();
+    setIsUploading(false);
+    setProgress(0);
+    setUploadStats({ progress: 0, speedKBps: 0, speedMbps: 0, timeRemaining: 0, uploaded: 0, total: 0 });
+  };
+
+  // ✅ COPY ROOM SHARE LINK
+  const copyRoomLink = () => {
+    const link = `${window.location.origin}?room=${joinedRoom}`;
+    navigator.clipboard.writeText(link).then(() => {
+      setCopiedRoom(true);
+      setTimeout(() => setCopiedRoom(false), 2000);
+    });
   };
 
   return (
+    <div className="min-h-screen bg-neutral-50 dark:bg-neutral-950 font-sans text-neutral-900 dark:text-neutral-50 antialiased selection:bg-neutral-200 dark:selection:bg-neutral-800">
+      <div className="mx-auto flex max-w-5xl flex-col gap-6 p-4 md:p-8">
 
-    <div className="min-h-screen bg-muted/30">
-      <div className="mx-auto flex max-w-5xl flex-col gap-6 p-6">
-        <div className="flex flex-col gap-3 rounded-md border bg-card px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p className="text-xs uppercase tracking-wide text-muted-foreground">My ID</p>
-            <p className="text-sm font-medium">{myId || "Not connected"}</p>
-          </div>
-          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
-            <Input
-              className="sm:w-48"
-              value={roomId}
-              onChange={(e) => setRoomId(e.target.value)}
-              placeholder="Room ID"
-            />
-            <Button className="hover:cursor-pointer" onClick={joinRoom}>Join room</Button>
-          </div>
-        </div>
+        {/* Header component */}
+        <Header
+          socketConnected={socketConnected}
+          peerConnectionState={peerConnectionState}
+          myId={myId}
+          roomId={roomId}
+          setRoomId={setRoomId}
+          joinedRoom={joinedRoom}
+          joinRoom={joinRoom}
+          leaveRoom={leaveRoom}
+          copiedRoom={copiedRoom}
+          copyRoomLink={copyRoomLink}
+        />
 
+
+
+        {/* Main Content Area */}
         <div className="grid gap-6 lg:grid-cols-2">
-          <section className="rounded-md border bg-card">
-            <div className="flex items-center justify-between border-b px-4 py-3">
-              <div>
-                <p className="text-sm font-semibold">Text</p>
-                <p className="text-xs text-muted-foreground">Messages</p>
-              </div>
-              <Button className="hover:cursor-pointer" onClick={sendMessage}>Send</Button>
-            </div>
-            <div className="space-y-4 p-4">
-              <Input
-                value={text}
-                onChange={(e) => setText(e.target.value)}
-                placeholder="Write a message"
-              />
-              <Field>
-                <FieldLabel htmlFor="textarea-disabled">Inbox</FieldLabel>
-                <div className="mt-3 space-y-2">
-                  {receivedMessages.map((msg, index) => (
-                    console.log("Received file message:", msg.type),
-                    <div key={index} className="rounded-md border bg-background/70 p-2">
-                      {msg.type === "text" && (
-                        <p className="text-sm whitespace-pre-wrap">{msg.data}</p>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </Field>
-            </div>
-          </section>
 
-          <section className="rounded-md border bg-card">
-            <div className="flex items-center justify-between border-b px-4 py-3">
-              <div>
-                <p className="text-sm font-semibold">Files</p>
-                <p className="text-xs text-muted-foreground">Transfer</p>
-              </div>
-            </div>
-            <div className="space-y-4 p-4">
-              <Progress value={progress} className="w-full" />
-              <div className="text-xs text-muted-foreground">
-                Sending: {Math.round(progress)}%
-              </div>
-              <div className="rounded-md border bg-background/70 px-3 py-2 text-xs text-muted-foreground">
-                Receiving: {recivedProgress.name || "-"} {recivedProgress.progress ? `(${recivedProgress.progress}%)` : ""}
-              </div>
-              <Input
-                type="file"
-                disabled={isUploading}
-                onChange={(e) => {
-                  const file = e.target.files[0];
-                  if (file) rtc.sendFile(file, (p) => {
-                    setProgress(Number(p.progress) || 0);
-                    setUploadStats(p);
-                    setIsUploading(true);
-                  }).then(() => {
-                    console.log("File sent successfully");
-                    setUploadStats({ progress: 0, speedMbps: 0, timeRemaining: 0 });
-                    setIsUploading(false);
+          {/* Message Panel Component */}
+          <MessagePanel
+            receivedMessages={receivedMessages}
+            text={text}
+            setText={setText}
+            sendMessage={sendMessage}
+            peerConnectionState={peerConnectionState}
+          />
 
-                  }).catch((err) => {
-                    console.error("File send error:", err);
-                    setUploadStats({ progress: 0, speedMbps: 0, timeRemaining: 0 });
-                    setIsUploading(false);
+          {/* File Panel Component */}
+          <FilePanel
+            receivedMessages={receivedMessages}
+            peerConnectionState={peerConnectionState}
+            isUploading={isUploading}
+            uploadStats={uploadStats}
+            recivedProgress={recivedProgress}
+            handleSendFile={handleSendFile}
+            handleCancelUpload={handleCancelUpload}
+          />
 
-                  });
-                }}
-              />
-              <Progress value={uploadStats.progress} className="w-full" />
-
-              <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
-                <div>Progress: {Math.round(uploadStats.progress)}%</div>
-                <div>Speed: {uploadStats.speedKBps || 0} KB/s</div>
-                <div>Network: {uploadStats.speedMbps || 0} Mbps</div>
-                <div>
-                  {uploadStats.timeRemaining > 0 &&
-                    `Time left: ${formatTime(uploadStats.timeRemaining)}`
-                  }
-                </div>
-              </div>
-
-              {
-                isUploading && (
-
-                  <Button
-                    onClick={() => {
-
-                      rtc.cancelUpload();
-                      setIsUploading(false)
-                      setProgress(0);
-
-                    }
-                    }
-                  >Cancel</Button>
-                )
-              }
-              <div className="space-y-2">
-                {receivedMessages.map((msg, index) => (
-                  msg.type === "file" && (
-                    <div key={index} className="rounded-md border bg-background/70 p-2">
-                      <p className="text-sm font-medium">📁 {msg.name}</p>
-                      <button
-                        className="mt-2 rounded bg-primary px-2 py-1 text-xs text-primary-foreground"
-                        onClick={() => {
-                          const a = document.createElement("a");
-                          a.href = msg.url;
-                          a.download = msg.name;
-                          a.click();
-                        }}
-                      >
-                        Download
-                      </button>
-                    </div>
-                  )
-                ))}
-              </div>
-
-            </div>
-          </section>
         </div>
+
       </div>
     </div>
   );
