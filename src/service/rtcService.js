@@ -27,7 +27,7 @@ const getIceServers = () => {
 
 class RTCService {
     constructor() {
-      this.pc = new RTCPeerConnection({
+        this.pc = new RTCPeerConnection({
             iceServers: getIceServers()
         })
         this.dataChannel = null;
@@ -41,10 +41,18 @@ class RTCService {
             if (this.pc.connectionState === "connected") {
                 console.log("✅ Connection established");
             }
+            if (this.onConnectionStateChange) {
+                this.onConnectionStateChange(this.pc.connectionState);
+            }
         };
         this.pc.ondatachannel = (event) => {
             this.dataChannel = event.channel;
             this.bindDataChannelHandlers(this.dataChannel);
+        };
+        this.pc.onicecandidate = (event) => {
+            if (event.candidate && this.onIceCandidate) {
+                this.onIceCandidate(event.candidate);
+            }
         };
     }
 
@@ -89,9 +97,11 @@ class RTCService {
                 }
                 if (msg.type === "file-cancelled") {
                     console.log("File transfer cancelled by sender");
-                    fileMeta = msg;
+                    fileMeta = null;
                     receivedSize = 0;
                     receivedBuffers = [];
+                    this.onMessage?.(msg);
+                    return;
                 }
             }
 
@@ -143,7 +153,7 @@ class RTCService {
             })
 
             const readSlice = (o) => {
-                // ✅ Check BEFORE reading
+                
                 if (abortController.signal.aborted) {
                     return;
                 }
@@ -304,11 +314,22 @@ class RTCService {
             if (this.pc.connectionState === "connected") {
                 console.log("✅ Connection established");
             }
+            if (this.onConnectionStateChange) {
+                this.onConnectionStateChange(this.pc.connectionState);
+            }
         };
         this.pc.ondatachannel = (event) => {
             this.dataChannel = event.channel;
             this.bindDataChannelHandlers(this.dataChannel);
         };
+        this.pc.onicecandidate = (event) => {
+            if (event.candidate && this.onIceCandidate) {
+                this.onIceCandidate(event.candidate);
+            }
+        };
+        if (this.onConnectionStateChange) {
+            this.onConnectionStateChange("new");
+        }
     }
 
     send(message) {
