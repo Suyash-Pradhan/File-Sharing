@@ -284,7 +284,7 @@ export default function Chat() {
 
   // ✅ SEND FILE
   const handleSendFile = (file) => {
-    if (!file) return;
+    if (!file || isUploading) return;
     setIsUploading(true);
     setProgress(0);
     setUploadStats({
@@ -295,7 +295,6 @@ export default function Chat() {
       uploaded: 0,
       total: file.size
     });
-
     rtc.sendFile(file, (p) => {
       setProgress(Number(p.progress) || 0);
       setUploadStats({
