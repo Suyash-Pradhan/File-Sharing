@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef,useMemo } from "react";
 import { Input } from "./ui/input.tsx";
 import { Button } from "./ui/button.tsx";
 import { MessageSquare, Send } from "lucide-react";
