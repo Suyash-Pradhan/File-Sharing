@@ -46,6 +46,8 @@ export default function Chat() {
   const rtc = rtcRef.current;
 
   useEffect(() => {
+    let retryTimeoutId = null;
+
     const handleMe = (id) => {
       setMyId(id);
     };
@@ -213,13 +215,16 @@ export default function Chat() {
           socket.emit("user:joinRoom", roomParam);
           setJoinedRoom(roomParam);
         } else {
-          setTimeout(checkAndJoin, 150);
+          retryTimeoutId = setTimeout(checkAndJoin, 150);
         }
       };
       checkAndJoin();
     }
 
     return () => {
+      if (retryTimeoutId) {
+        clearTimeout(retryTimeoutId);
+      }
       socket.off("me", handleMe);
       socket.off("connect", handleConnect);
       socket.off("disconnect", handleDisconnect);
@@ -231,6 +236,7 @@ export default function Chat() {
       rtc.onMessage = null;
       rtc.onConnectionStateChange = null;
       rtc.onIceCandidate = null;
+      rtc.closeConnection();
     };
   }, []);
 
