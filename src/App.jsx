@@ -236,9 +236,10 @@ export default function Chat() {
 
   // ✅ JOIN ROOM
   const joinRoom = () => {
-    if (roomId.trim()) {
-      socket.emit("user:joinRoom", roomId);
-      setJoinedRoom(roomId);
+    const trimedRoomId = roomId.trim();
+    if (trimedRoomId) {
+      socket.emit("user:joinRoom", trimedRoomId);
+      setJoinedRoom(trimedRoomId);
     }
   };
 
