@@ -7,9 +7,6 @@ This application allows users to connect securely via temporary rooms, send inst
 ---
 
 ## 🚀 Key Technical Highlights 
-
-If you are showcasing this project on your resume or in interviews, highlight these technical challenges you solved:
-
 1. **WebRTC Data Channel Backpressure Management:**
    - Designed a file chunking mechanism (slicing files into `16 KB` blocks) for sending large files over `RTCDataChannel`.
    - Prevented browser tab memory exhaustion and connection drops by actively monitoring `bufferedAmount` (holding queue execution when buffer threshold exceeds `64 KB`).
